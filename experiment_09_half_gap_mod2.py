@@ -1,7 +1,5 @@
-#-*- coding: utf-8 -*#
-from pathlib import Path
-
-code = r'''"""
+# -*- coding: utf-8 -*-
+"""
 Experiment 09 - Prime-gap half-sequence modulo 2
 Erdos #251 research
 
@@ -113,35 +111,89 @@ def binary_distribution(seq):
 # Period matching
 # ------------------------------------------------------------
 
+def pack_binary(seq):
+    """
+    Pack a 0/1 sequence into one Python integer.
+
+    Each sequence entry occupies one byte with value 0 or 1.
+    This lets us compare shifted copies using big-integer XOR
+    and bit_count(), avoiding a Python loop over every element.
+    """
+    return int.from_bytes(bytes(seq), "little")
+
+
+def _period_match_packed(packed, n, p):
+    """
+    Period matching for an already packed binary sequence.
+    """
+    compared = n - p
+    shift = 8 * p
+
+    # Because each byte is exactly 0 or 1, each mismatch
+    # contributes exactly one set bit after XOR.
+    xor_value = packed ^ (packed >> shift)
+
+    mask = (1 << (8 * compared)) - 1
+    mismatches = (xor_value & mask).bit_count()
+
+    return (compared - mismatches) / compared, compared
+
+
 def period_match(seq, p):
     """
     Compare a[i] with a[i-p].
     Returns:
         match_rate, compared
     """
-    if p <= 0 or p >= len(seq):
+    n = len(seq)
+
+    if p <= 0 or p >= n:
         return float("nan"), 0
 
-    matches = sum(
-        1 for i in range(p, len(seq))
-        if seq[i] == seq[i - p]
-    )
-    compared = len(seq) - p
-
-    return matches / compared, compared
+    packed = pack_binary(seq)
+    return _period_match_packed(packed, n, p)
 
 
 def best_period(seq, max_period=100):
     results = []
 
-    max_period = min(max_period, len(seq) - 1)
+    n = len(seq)
+    max_period = min(max_period, n - 1)
+    packed = pack_binary(seq)
 
     for p in range(1, max_period + 1):
-        rate, compared = period_match(seq, p)
+        rate, compared = _period_match_packed(
+            packed,
+            n,
+            p
+        )
         results.append((rate, p, compared))
 
     results.sort(reverse=True)
     return results
+
+
+# ------------------------------------------------------------
+# TDD TEST - Bit-packed period matching
+# ------------------------------------------------------------
+
+def test_bitpacked_period_match():
+    seq = [0, 1, 0, 1, 1, 0, 1, 0]
+
+    # p=2:
+    # comparisons:
+    # 0=0, 1=1, 0=1, 1=0, 1=1, 0=0
+    # 4 matches out of 6.
+    rate, compared = period_match(seq, 2)
+
+    assert compared == 6
+    assert rate == 4 / 6
+
+    print("TEST 09A: Bit-packed period matching")
+    print("PASS")
+
+
+test_bitpacked_period_match()
 
 
 # ------------------------------------------------------------
@@ -172,20 +224,28 @@ def complexity_table(seq, max_k=20):
 # Random binary baseline
 # ------------------------------------------------------------
 
-def random_binary(n):
-    return [random.getrandbits(1) for _ in range(n)]
-
-
-def random_period_baseline(n, max_period, trials=200):
+def random_period_baseline(seq, max_period, trials=200, seed=25109):
     """
-    For each random sequence:
-    find its best period among 1..max_period.
+    Randomization null model:
+    shuffle the observed binary sequence while preserving its
+    exact 0/1 counts.
+
+    This isolates ordering/periodicity effects from the marginal
+    bias P(1) != 1/2.
     """
     best_rates = []
+    rng = random.Random(seed)
+    base = list(seq)
 
     for _ in range(trials):
-        seq = random_binary(n)
-        best = best_period(seq, max_period)[0]
+        shuffled = base.copy()
+        rng.shuffle(shuffled)
+
+        best = best_period(
+            shuffled,
+            max_period
+        )[0]
+
         best_rates.append(best[0])
 
     best_rates.sort()
@@ -329,9 +389,10 @@ def main():
     print("-" * 78)
 
     baseline = random_period_baseline(
-        n=len(seq),
+        seq=seq,
         max_period=MAX_PERIOD,
         trials=200,
+        seed=25109,
     )
 
     real_best_rate, real_best_p, _ = best[0]
@@ -402,7 +463,7 @@ The experiment asks whether this binary sequence shows
 simple eventual-periodic structure.
 
 IMPORTANT:
-This experiment is deliberately weaker than Erdős #251.
+This experiment is deliberately weaker than Erdos #251.
 Even if a_n is non-periodic, that alone does NOT prove
 irrationality of T_1, because the full dyadic sum also depends
 on higher bits of h_n and on carry propagation.
@@ -418,10 +479,4 @@ rather than:
 
 if __name__ == "__main__":
     main()
-'''
 
-path = Path("/mnt/data/experiment_09_half_gap_mod2.py")
-path.write_text(code, encoding="utf-8")
-
-print(f"已生成：{path}")
-print("运行：python experiment_09_half_gap_mod2.py")
